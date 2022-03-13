@@ -115,7 +115,6 @@ const getAllReservations = function(guest_id, limit = 10) {
   return pool
     .query(queryString, values)
     .then(res => {
-      console.log(res.rows)
       return res.rows;
     })
     .catch((err) => {
@@ -134,18 +133,52 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 const getAllProperties = function(options, limit = 10) {
-  const queryString = `
-  SELECT *
+  let queryParams = [];
+  let insert = 'WHERE'
+  let whereUsed = false;
+
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
   FROM properties
-  LIMIT $1;
+  JOIN property_reviews ON properties.id = property_id
+  `;
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryString += `WHERE city LIKE $${queryParams.length} `;
+    insert = 'AND';
+  }
+  if (options.owner_id) {
+    queryParams.push(`%${options.owner_id}%`);
+    queryString += `${insert} owner_id LIKE $${queryParams.length} `;
+    insert = 'AND';
+  }
+  if (options.minimum_price_per_night && options.maximum_price_per_night) {
+    queryParams.push(`${options.minimum_price_per_night * 100}`);
+    queryParams.push(`${options.maximum_price_per_night * 100}`);
+    queryString += `${insert} cost_per_night > $${queryParams.length - 1} AND cost_per_night < $${queryParams.length} `;
+  }
+  let grouped = false;
+  if (options.minimum_rating) {
+    queryParams.push(`${options.minimum_rating}`);
+    queryString += `GROUP BY properties.id `;
+    grouped = true;
+    queryString += `HAVING avg(property_reviews.rating) >= $${queryParams.length} `;
+  }
+
+  queryParams.push(limit);
+  if (!grouped) {
+    queryString += ` GROUP BY properties.id `;
+  }
+  queryString += `
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
   `;
 
-  const values = [limit];
+  console.log(queryString, queryParams);
 
   return pool
-    .query(queryString, values)
+    .query(queryString, queryParams)
     .then(res => {
-      //console.log(res.rows);
       return res.rows;
     })
     .catch((err) => {
